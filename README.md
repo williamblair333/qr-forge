@@ -234,6 +234,11 @@ git checkout -b feature/update-ui
 
 ---
 
+# ⚠️ License
+
+This work is created up the GNU GENERAL PUBLIC LICENSE Version 3.  See LICENSE.
+
+
 # ⚠️ Disclaimer
 
 Software is provided **AS‑IS**.
