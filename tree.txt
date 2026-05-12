@@ -6,8 +6,8 @@
 │       └── index.html
 ├── docker-compose.yml
 ├── Dockerfile
+├── LICENSE
 ├── README.md
 ├── requirements.txt
+├── screenshot.png
 └── tree.txt
-
-3 directories, 8 files
