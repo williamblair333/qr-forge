@@ -1,6 +1,5 @@
-from typing import Optional
-
 import io
+import re
 
 import segno
 from fastapi import FastAPI, Request, Query, HTTPException
@@ -9,121 +8,54 @@ from fastapi.templating import Jinja2Templates
 
 app = FastAPI(
     title="qrforge",
-    description="Minimal QR code generator service with WiFi support",
-    version="1.1.0",
+    description="QR code generator — contacts, WiFi, email, SMS, phone, location, events, and more",
+    version="2.1.0",
 )
 
 templates = Jinja2Templates(directory="app/templates")
 
+_COLOR_RE = re.compile(r'^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3,5})?$|^[a-z]+$')
+
 
 @app.get("/", response_class=HTMLResponse)
-async def index(
-    request: Request,
-    # Common QR options
-    mode: str = Query(default="text", description="Mode: text or wifi"),
-    data: Optional[str] = Query(
-        default=None,
-        description="Text or URL to encode (used when mode=text)",
-    ),
-    scale: int = Query(default=5, ge=1, le=50, description="QR scale (size multiplier)"),
-    border: int = Query(default=4, ge=0, le=20, description="Border size"),
-    # WiFi-specific params
-    wifi_ssid: Optional[str] = Query(default=None, description="WiFi SSID"),
-    wifi_password: Optional[str] = Query(default=None, description="WiFi password"),
-    wifi_auth: str = Query(
-        default="WPA",
-        description="WiFi auth type (WEP, WPA, nopass)",
-    ),
-    wifi_hidden: bool = Query(
-        default=False,
-        description="WiFi hidden network flag",
-    ),
-):
-    """
-    Human-friendly HTML interface for generating QR codes.
-
-    Modes:
-      - mode=text (default): encode arbitrary text/URL
-      - mode=wifi: build a WiFi QR payload using SSID/PASSWORD/AUTH/HIDDEN
-    """
-
-    mode = mode.lower().strip()
-    if mode not in ("text", "wifi"):
-        mode = "text"
-
-    wifi_payload: Optional[str] = None
-    effective_data: Optional[str] = data
-
-    if mode == "wifi":
-        # Build WiFi QR payload according to standard format:
-        # WIFI:T:<auth>;S:<ssid>;P:<password>;H:<hidden>;;
-        if wifi_ssid:
-            auth = wifi_auth.upper().strip() if wifi_auth else "WPA"
-            if auth not in ("WEP", "WPA", "NOPASS"):
-                auth = "WPA"
-            hidden_flag = "true" if wifi_hidden else "false"
-
-            # Empty password for nopass networks is allowed
-            pwd = wifi_password or ""
-            # Escape characters ; , : " \ as recommended in some implementations
-            def _escape(value: str) -> str:
-                return (
-                    value.replace("\\", "\\\\")
-                    .replace(";", "\\;")
-                    .replace(",", "\\,")
-                    .replace(":", "\\:")
-                    .replace('"', '\\"')
-                )
-
-            ssid_escaped = _escape(wifi_ssid)
-            pwd_escaped = _escape(pwd)
-
-            wifi_payload = f"WIFI:T:{auth};S:{ssid_escaped};P:{pwd_escaped};H:{hidden_flag};;"
-            effective_data = wifi_payload
-        else:
-            wifi_payload = None
-            effective_data = None
-
-    return templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
-            "mode": mode,
-            "data": effective_data,
-            "scale": scale,
-            "border": border,
-            "wifi_ssid": wifi_ssid or "",
-            "wifi_password": wifi_password or "",
-            "wifi_auth": wifi_auth,
-            "wifi_hidden": wifi_hidden,
-            "wifi_payload": wifi_payload,
-        },
-    )
+async def index(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
 
 @app.get("/qr")
 async def generate_qr(
-    data: str = Query(..., description="Text or URL to encode"),
-    scale: int = Query(default=5, ge=1, le=50, description="QR scale (size multiplier)"),
+    data: str = Query(..., description="Data to encode"),
+    scale: int = Query(default=6, ge=1, le=50, description="Scale factor"),
     border: int = Query(default=4, ge=0, le=20, description="Border size"),
+    ec: str = Query(default="M", description="Error correction level: L M Q H"),
+    dark: str = Query(default="#000000", description="Module color (hex or name)"),
+    light: str = Query(default="#ffffff", description="Background color (hex or name)"),
+    fmt: str = Query(default="png", description="Output format: png or svg"),
 ):
-    """
-    Machine-friendly endpoint that returns a PNG QR code.
-
-    Example:
-      curl --get \
-        --data-urlencode "data=https://example.com" \
-        --data "scale=5" \
-        --data "border=4" \
-        http://localhost:8002/qr --output qr.png
-    """
     if not data:
-        raise HTTPException(status_code=400, detail="Parameter 'data' is required")
+        raise HTTPException(status_code=400, detail="'data' is required")
 
-    qr = segno.make(data, micro=False)
+    ec_val = ec.upper()
+    if ec_val not in ("L", "M", "Q", "H"):
+        raise HTTPException(status_code=400, detail=f"Invalid error correction level '{ec}' — use L, M, Q, or H")
 
-    buffer = io.BytesIO()
-    qr.save(buffer, kind="png", scale=scale, border=border)
-    png_bytes = buffer.getvalue()
+    if not _COLOR_RE.match(dark):
+        raise HTTPException(status_code=400, detail=f"Invalid dark color: {dark}")
+    if not _COLOR_RE.match(light):
+        raise HTTPException(status_code=400, detail=f"Invalid light color: {light}")
 
-    return Response(content=png_bytes, media_type="image/png")
+    if fmt not in ("png", "svg"):
+        raise HTTPException(status_code=400, detail=f"Invalid format '{fmt}' — use png or svg")
+
+    try:
+        qr = segno.make(data, micro=False, error=ec_val)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    buf = io.BytesIO()
+    if fmt == "svg":
+        qr.save(buf, kind="svg", scale=10, border=border, dark=dark, light=light)
+        return Response(content=buf.getvalue(), media_type="image/svg+xml")
+    else:
+        qr.save(buf, kind="png", scale=scale, border=border, dark=dark, light=light)
+        return Response(content=buf.getvalue(), media_type="image/png")
