@@ -55,22 +55,18 @@ app.main:app`) with the same `requirements.txt`. If the Dockerfile and this
 block ever disagree about how the app starts, that is a real defect: the gate
 would be proving something users never run.
 
-**Known gaps, found while writing this brief:**
+**Both gaps found while writing this brief are now fixed:**
 
-- The README documents no way to run this without Docker, even though the image
-  itself just runs `uvicorn`. A short "run without Docker" section would close it
-  and remove the declared exception below.
-- **An unknown query parameter is silently ignored.** `?fmt=bogus` correctly
-  returns 400, but `?format=svg` — a plausible guess at the parameter name —
-  returns a PNG with 200 OK. The caller believes they asked for SVG and gets
-  something else. Rejecting unknown parameters would turn a wrong answer into a
-  clear one. (Found by writing this brief's verify block with the wrong name.)
+- The README documents a "run without Docker" path, so the gate uses documented
+  steps rather than a declared exception.
+- Unknown query parameters are rejected with a 400 naming the valid ones.
+  Previously `?format=svg` — a plausible guess at `fmt` — returned a PNG with
+  200 OK, giving the caller something other than what they asked for.
 
 ```yaml
 verify:
   image: python:3.12-slim
   network: required
-  install_note: "README documents `docker compose` only; the gate cannot nest Docker, so it runs the same uvicorn command the image's CMD runs"
   install:
     - pip install --no-cache-dir -r requirements.txt
   run: sh -c "uvicorn app.main:app --host 127.0.0.1 --port 8002 & sleep 5; python3 -c \"import urllib.request; body=urllib.request.urlopen('http://127.0.0.1:8002/qr?data=hello&fmt=svg').read(); open('/tmp/qr-forge.svg','wb').write(body); print(body[:120].decode())\""

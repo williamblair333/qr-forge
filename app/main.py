@@ -22,8 +22,12 @@ async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
+_QR_PARAMS = ("data", "scale", "border", "ec", "dark", "light", "fmt")
+
+
 @app.get("/qr")
 async def generate_qr(
+    request: Request,
     data: str = Query(..., description="Data to encode"),
     scale: int = Query(default=6, ge=1, le=50, description="Scale factor"),
     border: int = Query(default=4, ge=0, le=20, description="Border size"),
@@ -34,6 +38,16 @@ async def generate_qr(
 ):
     if not data:
         raise HTTPException(status_code=400, detail="'data' is required")
+
+    # Reject unknown parameters instead of ignoring them. `?format=svg` is a
+    # plausible guess at `fmt`, and silently returning a PNG with 200 OK gives
+    # the caller something other than what they asked for, with no way to tell.
+    unknown = [name for name in request.query_params if name not in _QR_PARAMS]
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown parameter(s): {', '.join(sorted(unknown))} — valid: {', '.join(_QR_PARAMS)}",
+        )
 
     ec_val = ec.upper()
     if ec_val not in ("L", "M", "Q", "H"):

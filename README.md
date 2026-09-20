@@ -79,6 +79,20 @@ docker compose down
 
 ---
 
+# 🐍 Run without Docker
+
+The image only runs `uvicorn`, so the app runs the same way on the host. Needs
+Python 3.12+.
+
+```bash
+pip install --no-cache-dir -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8002
+```
+
+Then open `http://localhost:8002/`. Add `--reload` while editing.
+
+---
+
 # 🚀 Quick Start — docker run
 
 ### Build
